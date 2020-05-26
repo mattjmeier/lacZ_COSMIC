@@ -3,6 +3,9 @@ title: "LacZ COSMIC Project"
 author: "Matthew J. Meier"
 subtitle: MutationalPatterns analysis - for response to reviewers
 output:
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
   html_document:
     code_folding: show
     fig_caption: yes
@@ -13,9 +16,6 @@ output:
     toc_float:
       collapsed: yes
       smooth_scroll: no
-  pdf_document:
-    toc: yes
-    toc_depth: '4'
 ---
 
 ***
