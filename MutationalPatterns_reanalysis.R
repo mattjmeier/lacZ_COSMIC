@@ -1,11 +1,51 @@
+---
+title: "LacZ COSMIC Project"
+author: "Matthew J. Meier"
+subtitle: MutationalPatterns analysis - for response to reviewers
+output:
+  html_document:
+    code_folding: show
+    fig_caption: yes
+    highlight: haddock
+    theme: cerulean
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+---
+
+***
+# Revision History
+#### This version
+Current version: 1  
+Date report generated: `r format(Sys.time(), '%d %B, %Y')`  
+Purpose of report: To test whether a different signature reconstruction algorithm applied to the lacZ COSMIC data produced robust signature compositions for each environmental mutagen in the study.  
+
+#### Previous revisions
+
+Previous version: N/A  
+Revision requested by: N/A  
+Justification for revision: N/A  
+
+***
+# Load libraries required for analysis
+```{r setup,echo=TRUE,include=TRUE,message = FALSE}
 library(MutationalPatterns)
 library(GenomicRanges)
 library(VariantAnnotation)
 library(SomaticSignatures)
-#library(deconstructSigs)
+library(deconstructSigs)
+library(ggplot2)
+```
 
-###################################################################
-# Load lacZ-corrected COSMIC signatures (V3) WITHOUT control
+***
+# Load data required for analysis
+#### lacZ-corrected COSMIC signatures (V3) WITHOUT control
+```{r load_v3_no_control}
 lacZ_cosmic_signatures_v3_NO_control <- as.data.frame(t(read.table("data/lacZ_corrected_COSMIC_signatures_v3_without_control.txt",
                                                                 sep="\t",
                                                                 header=F,
@@ -13,25 +53,28 @@ lacZ_cosmic_signatures_v3_NO_control <- as.data.frame(t(read.table("data/lacZ_co
 newSigs <- read.table("data/ColumnNamesforSignatures3withoutcontrol.txt", header=T)
 rownames(lacZ_cosmic_signatures_v3_NO_control) <- colnames(newSigs)
 colnames(lacZ_cosmic_signatures_v3_NO_control) <- colnames(signatures.cosmic)
+```
 
-###################################################################
-# Load lacZ-corrected COSMIC signatures (V3) with control
+#### lacZ-corrected COSMIC signatures (V3) with control
+```{r load_v3}
 lacZ_cosmic_signatures_v3_control <- as.data.frame(t(read.table("data/lacZ_corrected_COSMIC_signatures_v3_with_control.txt",
                                                      sep="\t",
                                                      header=T,
                                                      stringsAsFactors = F)))
 colnames(lacZ_cosmic_signatures_v3_control) <- colnames(signatures.cosmic)
+```
 
-###################################################################
-# Load lacZ-corrected COSMIC signatures (V2) with control
+#### lacZ-corrected COSMIC signatures (V2) with control
+```{r load_v2}
 lacZ_cosmic_signatures_v2_control <- as.data.frame(t(read.table("data/lacZ_corrected_COSMIC_signatures_v2_with_control.txt",
                                                                      sep="\t",
                                                                      header=T,
                                                                      stringsAsFactors = F)))
 colnames(lacZ_cosmic_signatures_v2_control) <- colnames(signatures.cosmic)
+```
 
-###################################################################
-# Load mutation observations
+#### Mutation observations
+```{r load_muts}
 mutationData <- read.table("./Meta Data.txt",
                            header=T,
                            sep="\t")
@@ -41,66 +84,148 @@ mutationData$end <- mutationData$start
 
 mutationDataVRange <- VRanges(seqnames = mutationData$chr,
                                 ranges = IRanges(mutationData$start,
-                                                 end = mutationData$end),
+                                end = mutationData$end),
                                 ref = mutationData$Ref,
                                 alt = mutationData$Alt,
                                 sampleNames = mutationData$Group)
-###################################################################
-# Generate motif matrix for mutation data
+# Sanity check
+head(mutationData)
+```
+***
+# Data processing
+#### Generate motif matrix for mutation data
+```{r motif_matrix}
 lacZ.fa = FaFile(paste("data/lacZ.fa", sep=""))
 mutationRanges <- mutationContext(mutationDataVRange, lacZ.fa)
 mut_matrix = as.matrix(motifMatrix(mutationRanges))
+```
 
-###################################################################
-# Do fitting of signatures
+#### Do fitting of signatures
+```{r fitting}
 fit_res_v2 <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v2_control))
 fit_res_v3 <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v3_control))
 fit_res_v3_no_control <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v3_NO_control))
+```
 
-###################################################################
-# Plot results
+#### Cosine similarity calculation for reconstructions
+V2 COSMIC Signatures
+```{r cosine_similarities_V2}
+cos_sim_v2 <- cos_sim_matrix(fit_res_v2$reconstructed, mut_matrix)
+cos_sim_v2_lacZ <- cos_sim_matrix(fit_res_v2$reconstructed, t(lacZ_cosmic_signatures_v2_control))
+
+```
+V3 COSMIC Signatures
+```{r cosine_similarities_V3}
+cos_sim_v3 <- cos_sim_matrix(fit_res_v3$reconstructed, mut_matrix)
+cos_sim_v3_lacZ <- cos_sim_matrix(fit_res_v3$reconstructed, t(lacZ_cosmic_signatures_v3_control))
+
+```
+
+V3 COSMIC Signatures, no control signature
+```{r cosine_similarities_V3_no_control}
+cos_sim_v3_no_control <- cos_sim_matrix(fit_res_v3_no_control$reconstructed, mut_matrix)
+cos_sim_v3_no_control_lacZ <- cos_sim_matrix(fit_res_v3$reconstructed, t(lacZ_cosmic_signatures_v3_NO_control))
+```
+
+***
+
+# Plots
+```{r cutoff, eval=TRUE, echo=FALSE}
 cutoff=0.0
+```
 
-# V2 Signatures, with control signature
+Using a cutoff value of `r cutoff'  
+
+#### V2 Signatures, with control signature
+```{r plot_V2, fig.cap="Contribution of each signature (V2 COSMIC)", fig.width=10}
 selectv2 <- which(rowSums(fit_res_v2$contribution) > cutoff)
 plot_contribution(fit_res_v2$contribution[selectv2,],
                   lacZ_cosmic_signatures_v2_control[,selectv2],
-                  coord_flip = FALSE,
-                  mode = "relative")
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
 plot_contribution_heatmap(fit_res_v2$contribution,
                           cluster_samples = TRUE,
                           method = "complete")
+```
 
+```{r plot_V2_cos1, fig.cap="Cosine similarity: reconstructed signatures vs. mutations", fig.width=10}
+plot_cosine_heatmap(cos_sim_v2)
+```
 
-# V3 Signatures, with control signature
+```{r plot_V2_cos2, fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v2_lacZ)
+```
+
+#### V3 Signatures, with control signature
+```{r plot_V3, fig.cap="Contribution of each signature (V3 COSMIC)", fig.width=10}
 selectv3 <- which(rowSums(fit_res_v3$contribution) > cutoff)
+theme_set(theme(legend.position="bottom"))
 plot_contribution(fit_res_v3$contribution[selectv3,],
                   lacZ_cosmic_signatures_v3_control[,selectv3],
-                  coord_flip = FALSE,
-                  mode = "relative")
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
 plot_contribution_heatmap(fit_res_v3$contribution,
                           cluster_samples = TRUE,
                           method = "complete")
+```
 
+```{r plot_V3_cos1, fig.cap="Cosine similarity: reconstructed signatures vs. mutations", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3)
+```
 
-# V3 Signatures, without control signature
+```{r plot_V3_cos2, fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_lacZ)
+```
+
+#### V3 Signatures, without control signature
+```{r plot_v3_no_control, fig.cap="Contribution of each signature (V3 COSMIC, no control)", fig.width=10}
 selectv3_no_control <- which(rowSums(fit_res_v3_no_control$contribution) > cutoff)
 plot_contribution(fit_res_v3_no_control$contribution[selectv3_no_control,],
                   lacZ_cosmic_signatures_v3_NO_control[,selectv3_no_control],
-                  coord_flip = FALSE,
-                  mode = "relative")
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
 plot_contribution_heatmap(fit_res_v3_no_control$contribution,
                           cluster_samples = TRUE,
-                          method = "complete")
+                          method = "complete") + theme(legend.position = "bottom")
+```
 
+```{r plot_V3_no_control_cos1, fig.cap="Cosine similarity: reconstructed signatures vs. mutations", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_no_control)
+```
+
+```{r plot_V3_no_control_cos2, fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_no_control_lacZ)
+```
+
+## Reconstructed signatures
+
+#### V2 COSMIC
+```{r plot_reconstructions_V2}
 for (i in 1:ncol(mut_matrix)) {
 print(plot_compare_profiles(mut_matrix[,i], fit_res_v2$reconstructed[,i],
-                      profile_names = c("Original", "Reconstructed"),
+                      profile_names = c(colnames(mut_matrix)[i], "Reconstructed"),
                       condensed = TRUE))
-plot_compare_profiles(mut_matrix[,i], fit_res_v3$reconstructed[,i],
-                      profile_names = c("Original", "Reconstructed"),
-                      condensed = TRUE)
-plot_compare_profiles(mut_matrix[,i], fit_res_v3_no_control$reconstructed[,i],
-                      profile_names = c("Original", "Reconstructed"),
-                      condensed = TRUE)
 }
+```
+
+#### V3 COSMIC
+```{r plot_reconstructions_V3}
+for (i in 1:ncol(mut_matrix)) {
+print(plot_compare_profiles(mut_matrix[,i], fit_res_v3$reconstructed[,i],
+                      profile_names = c(colnames(mut_matrix)[i], "Reconstructed"),
+                      condensed = TRUE))
+}
+```
+
+#### V3 COSMIC, no control signature
+```{r plot_reconstructions_V3_no_control}
+for (i in 1:ncol(mut_matrix)) {
+print(plot_compare_profiles(mut_matrix[,i], fit_res_v3_no_control$reconstructed[,i],
+                      profile_names = c(colnames(mut_matrix)[i], "Reconstructed"),
+                      condensed = TRUE))
+}
+```
+<div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 0;"></div>
