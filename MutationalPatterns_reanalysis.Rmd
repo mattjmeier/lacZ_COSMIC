@@ -75,7 +75,7 @@ colnames(lacZ_cosmic_signatures_v2_control) <- colnames(signatures.cosmic)
 
 #### Mutation observations
 ```{r load_muts}
-mutationData <- read.table("./Meta Data.txt",
+mutationData <- read.table("./mutation_data.txt",
                            header=T,
                            sep="\t")
 mutationData$chr <- "lacZ"
@@ -138,8 +138,10 @@ Using a cutoff value of `r cutoff`
 
 ## Contributions and cosine similarities
 There are four plots for each version of the COSMIC signatures.  
+  
 The first two plots show relative contribution of each signature (first in bar chart, then as a heat map).  
-The final two plots show heatmaps of cosine similarity: first for the reconstructed signatures vs. actual mutations, then for the reconstructed signatures vs. the lacZ-COSMIC signatures used for the reconstruction.
+  
+The final two plots show heatmaps of cosine similarity: first for the reconstructed signatures vs. actual mutations, then for the reconstructed signatures vs. the lacZ-COSMIC signatures used for the reconstruction.  
 #### V2 Signatures, with control signature
 ```{r plot_V2, fig.cap="Contribution of each signature (V2 COSMIC)", fig.width=10}
 selectv2 <- which(rowSums(fit_res_v2$contribution) > cutoff)
