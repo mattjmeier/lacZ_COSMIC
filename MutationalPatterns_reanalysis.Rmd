@@ -134,8 +134,12 @@ cos_sim_v3_no_control_lacZ <- cos_sim_matrix(fit_res_v3$reconstructed, t(lacZ_co
 cutoff=0.0
 ```
 
-Using a cutoff value of `r cutoff'  
+Using a cutoff value of `r cutoff`  
 
+## Contributions and cosine similarities
+There are four plots for each version of the COSMIC signatures.  
+The first two plots show relative contribution of each signature (first in bar chart, then as a heat map).  
+The final two plots show heatmaps of cosine similarity: first for the reconstructed signatures vs. actual mutations, then for the reconstructed signatures vs. the lacZ-COSMIC signatures used for the reconstruction.
 #### V2 Signatures, with control signature
 ```{r plot_V2, fig.cap="Contribution of each signature (V2 COSMIC)", fig.width=10}
 selectv2 <- which(rowSums(fit_res_v2$contribution) > cutoff)
@@ -201,7 +205,7 @@ plot_cosine_heatmap(cos_sim_v3_no_control_lacZ)
 ```
 
 ## Reconstructed signatures
-
+The following plots show the top panel as original mutation data, the middle panel as the computationally reconstructed signature, and the bottom panel as the difference. Note that the y-axis is an order of magnitude smaller for the bottom panel.
 #### V2 COSMIC
 ```{r plot_reconstructions_V2}
 for (i in 1:ncol(mut_matrix)) {
