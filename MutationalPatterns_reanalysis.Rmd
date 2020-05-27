@@ -3,9 +3,6 @@ title: "LacZ COSMIC Project"
 author: "Matthew J. Meier"
 subtitle: MutationalPatterns analysis - for response to reviewers
 output:
-  pdf_document:
-    toc: yes
-    toc_depth: '4'
   html_document:
     code_folding: show
     fig_caption: yes
@@ -16,20 +13,44 @@ output:
     toc_float:
       collapsed: yes
       smooth_scroll: no
+  pdf_document:
+    documentclass: hitec
+    toc: yes
+    toc_depth: '4'
+    pandoc_args: --listings
+    includes:
+      in_header: preamble.tex
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), paste0("lacZ_COSMIC_MutationalPatterns_",format(Sys.time(), '%d-%m-%Y.%H.%M'),".html"))) })
 ---
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+# Set so that long lines in R will be wrapped:
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+```
 
 ***
 # Revision History
 #### This version
-Current version: 1  
+Current version: 2  
 Date report generated: `r format(Sys.time(), '%d %B, %Y')`  
-Purpose of report: To test whether a different signature reconstruction algorithm applied to the lacZ COSMIC data produced robust signature compositions for each environmental mutagen in the study.  
+Revision requested by: Francesco Marchetti  
+Justification(s) for revision:
+
+* Show a table of cosine similarities (between lacZ COSMIC signatures and the reconstructed signatures for each mutagen) above the threshold of 0.5 as done in previous analysis
+* Combine NGS and Sanger data
+
+Additional changes:
+
+* Removed instances where the reference base in mutation data had a mismatch from the *lacZ* reference
+* Removed the display of signatures in figures that had zero contribution to a particular mutational catalog
+* Show tabular output for relative contribution for reconstruction
 
 #### Previous revisions
 
-Previous version: N/A  
-Revision requested by: N/A  
-Justification for revision: N/A  
+Previous version: 1  
+Date of previous version: 26 May, 2020  
+Purpose of report: To test whether a different signature reconstruction algorithm applied to the lacZ COSMIC data produced robust signature compositions for each environmental mutagen in the study.  
+
 
 ***
 # Load libraries required for analysis
@@ -40,6 +61,9 @@ library(VariantAnnotation)
 library(SomaticSignatures)
 library(deconstructSigs)
 library(ggplot2)
+library(knitr)
+library(dplyr)
+library(kableExtra)
 ```
 
 ***
@@ -81,30 +105,61 @@ mutationData <- read.table("./mutation_data.txt",
 mutationData$chr <- "lacZ"
 colnames(mutationData)[2] <- "start"
 mutationData$end <- mutationData$start
-
+# Changed in version 2 to use chemical as sample names instead (i.e., not split by NGS vs Sanger)
+mutationData$chemical <- gsub("_.*$", "", mutationData$Group)
 mutationDataVRange <- VRanges(seqnames = mutationData$chr,
                                 ranges = IRanges(mutationData$start,
                                 end = mutationData$end),
                                 ref = mutationData$Ref,
                                 alt = mutationData$Alt,
-                                sampleNames = mutationData$Group)
+                                sampleNames = mutationData$chemical,)
 # Sanity check
-head(mutationData)
+knitr::kable(head(mutationData),
+             caption="Sanity check for mutation data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
 ```
+
 ***
 # Data processing
 #### Generate motif matrix for mutation data
+Added in version 2: check mutation data reference against our lacZ reference sequence.  
 ```{r motif_matrix}
 lacZ.fa = FaFile(paste("data/lacZ.fa", sep=""))
+refbase <- getSeq(lacZ.fa)
+flagpos <- vector()
+for (i in 1:length(start(mutationDataVRange))) {
+  if (ref(mutationDataVRange)[i] != as.character(refbase$lacZ[start(mutationDataVRange)[i]])) {
+    flagpos=c(flagpos, i)
+    }
+}
+# Remove positions that don't match the reference
+knitr::kable(mutationDataVRange[flagpos],
+             caption = "The following mutation calls will be removed because the reference sequence of lacZ does not match the reference from the mutation data.") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+mutationDataVRange[flagpos] <- NULL
 mutationRanges <- mutationContext(mutationDataVRange, lacZ.fa)
-mut_matrix = as.matrix(motifMatrix(mutationRanges))
+mut_matrix = as.matrix(motifMatrix(mutationRanges, normalize=FALSE))
 ```
 
 #### Do fitting of signatures
+
 ```{r fitting}
 fit_res_v2 <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v2_control))
 fit_res_v3 <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v3_control))
 fit_res_v3_no_control <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v3_NO_control))
+```
+  
+#### Table of relative signature contributions
+```{r tables}
+# Calculate relative contributions
+df <- fit_res_v3$contribution
+df_relative <- apply(df, 2, function(x){x/sum(x)})
+knitr::kable(df_relative,
+             caption = "Relative contribution of each signature to the mutational catalog for each mutagen",
+             digits = 2,
+             fixed_thead = T)  %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  scroll_box(height = "720px")
 ```
 
 #### Cosine similarity calculation for reconstructions
@@ -114,24 +169,54 @@ cos_sim_v2 <- cos_sim_matrix(fit_res_v2$reconstructed, mut_matrix)
 cos_sim_v2_lacZ <- cos_sim_matrix(fit_res_v2$reconstructed, t(lacZ_cosmic_signatures_v2_control))
 
 ```
-V3 COSMIC Signatures
-```{r cosine_similarities_V3}
-cos_sim_v3 <- cos_sim_matrix(fit_res_v3$reconstructed, mut_matrix)
-cos_sim_v3_lacZ <- cos_sim_matrix(fit_res_v3$reconstructed, t(lacZ_cosmic_signatures_v3_control))
-
-```
-
+  
 V3 COSMIC Signatures, no control signature
 ```{r cosine_similarities_V3_no_control}
 cos_sim_v3_no_control <- cos_sim_matrix(fit_res_v3_no_control$reconstructed, mut_matrix)
 cos_sim_v3_no_control_lacZ <- cos_sim_matrix(fit_res_v3$reconstructed, t(lacZ_cosmic_signatures_v3_NO_control))
 ```
+  
+V3 COSMIC Signatures  
+  
+Modified for version 2 of this analysis to add cutoff of 0.5
+  
+```{r cosine_similarities_V3}
+cos_sim_v3 <- cos_sim_matrix(fit_res_v3$reconstructed, mut_matrix)
+cos_sim_v3_lacZ <- cos_sim_matrix(fit_res_v3$reconstructed, t(lacZ_cosmic_signatures_v3_control))
+
+cos_sim_v3_lacZ_filtered <- cos_sim_v3_lacZ
+cos_sim_v3_lacZ_filtered[cos_sim_v3_lacZ_filtered<0.5] <- NA
+```
+  
+#### Tables showing cosine similarities
+
+```{r cosine_similarities_V3_table1, tidy=TRUE}
+# Shown as rounded to two decimals
+knitr::kable(t(cos_sim_v3_lacZ),
+             caption = "Cosine similarities between reconstructed signatures and lacZ COSMIC signatures",
+             digits = 2,
+             fixed_thead = T)  %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  scroll_box(height = "720px")
+```
+
+```{r cosine_similarities_table_rounded, tidy=TRUE}
+cos_sim_v3_lacZ_filtered_rounded <- round(cos_sim_v3_lacZ_filtered,3)
+knitr::kable(t(cos_sim_v3_lacZ_filtered_rounded),
+             caption = "Cosine similarities between reconstructed signatures and lacZ COSMIC signatures, filtered at cosine similarity of 0.5",
+             digits = 2,
+             fixed_thead = T) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  scroll_box(height = "720px")
+  
+```
+  
 
 ***
 
 # Plots
 ```{r cutoff, eval=TRUE, echo=FALSE}
-cutoff=0.0
+cutoff=0.001
 ```
 
 Using a cutoff value of `r cutoff`  
@@ -147,11 +232,11 @@ The final two plots show heatmaps of cosine similarity: first for the reconstruc
 ```{r plot_V2, fig.align="center", fig.cap="Contribution of each signature (V2 COSMIC)", fig.width=10}
 selectv2 <- which(rowSums(fit_res_v2$contribution) > cutoff)
 plot_contribution(fit_res_v2$contribution[selectv2,],
-                  lacZ_cosmic_signatures_v2_control[,selectv2],
+                  lacZ_cosmic_signatures_v2_control[selectv2,],
                   coord_flip = TRUE,
                   mode = "relative") +
   theme(legend.position="bottom")
-plot_contribution_heatmap(fit_res_v2$contribution,
+plot_contribution_heatmap(fit_res_v2$contribution[selectv2,],
                           cluster_samples = TRUE,
                           method = "complete")
 ```
@@ -169,11 +254,11 @@ plot_cosine_heatmap(cos_sim_v2_lacZ)
 selectv3 <- which(rowSums(fit_res_v3$contribution) > cutoff)
 theme_set(theme(legend.position="bottom"))
 plot_contribution(fit_res_v3$contribution[selectv3,],
-                  lacZ_cosmic_signatures_v3_control[,selectv3],
+                  lacZ_cosmic_signatures_v3_control[selectv3,],
                   coord_flip = TRUE,
                   mode = "relative") +
   theme(legend.position="bottom")
-plot_contribution_heatmap(fit_res_v3$contribution,
+plot_contribution_heatmap(fit_res_v3$contribution[selectv3,],
                           cluster_samples = TRUE,
                           method = "complete")
 ```
@@ -190,11 +275,11 @@ plot_cosine_heatmap(cos_sim_v3_lacZ)
 ```{r plot_v3_no_control, fig.align="center", fig.cap="Contribution of each signature (V3 COSMIC, no control)", fig.width=10}
 selectv3_no_control <- which(rowSums(fit_res_v3_no_control$contribution) > cutoff)
 plot_contribution(fit_res_v3_no_control$contribution[selectv3_no_control,],
-                  lacZ_cosmic_signatures_v3_NO_control[,selectv3_no_control],
+                  lacZ_cosmic_signatures_v3_NO_control[selectv3_no_control,],
                   coord_flip = TRUE,
                   mode = "relative") +
   theme(legend.position="bottom")
-plot_contribution_heatmap(fit_res_v3_no_control$contribution,
+plot_contribution_heatmap(fit_res_v3_no_control$contribution[selectv3_no_control,],
                           cluster_samples = TRUE,
                           method = "complete") + theme(legend.position = "bottom")
 ```
@@ -235,4 +320,10 @@ print(plot_compare_profiles(mut_matrix[,i], fit_res_v3_no_control$reconstructed[
                       condensed = TRUE))
 }
 ```
+
+# Session Info
+```{r sessionInfo, echo=FALSE, tidy=TRUE}
+sessionInfo()
+```
+
 <div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 0;"></div>
