@@ -31,8 +31,25 @@ knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
 ***
 # Revision History
 #### This version
-Current version: 2  
+Previous version: 4   
 Date report generated: `r format(Sys.time(), '%d %B, %Y')`  
+Revision requested by: Francesco Marchetti  
+Justification(s) for revision:
+
+* Downsample data to illustrate robustness
+
+#### Previous revisions
+
+Previous version: 3   
+Date report generated: 16 June 2020  
+Revision requested by: Francesco Marchetti  
+Justification(s) for revision:
+
+* Resample data to display random reassignment of the 96 triplet mutations within each sample  
+* Show relative contributions with and without Sanger data (i.e., downsampling)  
+
+Previous version: 2  
+Date report generated: 27 May, 2020  
 Revision requested by: Francesco Marchetti  
 Justification(s) for revision:
 
@@ -44,8 +61,6 @@ Additional changes:
 * Removed instances where the reference base in mutation data had a mismatch from the *lacZ* reference
 * Removed the display of signatures in figures that had zero contribution to a particular mutational catalog
 * Show tabular output for relative contribution for reconstruction
-
-#### Previous revisions
 
 Previous version: 1  
 Date of previous version: 26 May, 2020  
@@ -113,6 +128,12 @@ mutationDataVRange <- VRanges(seqnames = mutationData$chr,
                                 ref = mutationData$Ref,
                                 alt = mutationData$Alt,
                                 sampleNames = mutationData$chemical,)
+mutationDataVRangeSanger <- VRanges(seqnames = mutationData$chr,
+                                ranges = IRanges(mutationData$start,
+                                end = mutationData$end),
+                                ref = mutationData$Ref,
+                                alt = mutationData$Alt,
+                                sampleNames = mutationData$Group,)
 # Sanity check
 knitr::kable(head(mutationData),
              caption="Sanity check for mutation data") %>%
@@ -137,23 +158,111 @@ knitr::kable(mutationDataVRange[flagpos],
              caption = "The following mutation calls will be removed because the reference sequence of lacZ does not match the reference from the mutation data.") %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
 mutationDataVRange[flagpos] <- NULL
+mutationDataVRangeSanger[flagpos] <- NULL
 mutationRanges <- mutationContext(mutationDataVRange, lacZ.fa)
+mutationRangesSanger <- mutationContext(mutationDataVRangeSanger, lacZ.fa)
+set.seed(42)
+mutationRangesDownsampled <- sample(mutationRanges, round(length(mutationRanges)/2), replace=F)
 mut_matrix = as.matrix(motifMatrix(mutationRanges, normalize=FALSE))
+mut_matrix_norm = as.matrix(motifMatrix(mutationRanges, normalize=TRUE))
+mut_matrixSanger = as.matrix(motifMatrix(mutationRangesSanger, normalize=FALSE))
+mut_matrixDownsampled = as.matrix(motifMatrix(mutationRangesDownsampled, normalize=FALSE))
+mut_df = data.frame(t(motifMatrix(mutationRanges, normalize=TRUE)))
+mut_dfSanger = data.frame(t(motifMatrix(mutationRangesSanger, normalize=TRUE)))
+mut_dfDownsampled = data.frame(t(motifMatrix(mutationRangesDownsampled, normalize=TRUE)))
+colnames(mut_df) <- colnames(signatures.cosmic)
+colnames(mut_dfSanger) <- colnames(signatures.cosmic)
 ```
 
-#### Do fitting of signatures
+#### Do fitting of signatures with MutationalPatterns
 
 ```{r fitting}
+originalRownames <- rownames(mut_matrix)
+set.seed(42)
+mut_matrix_resampled <- mut_matrix[sample(nrow(mut_matrix)),]
+row.names(mut_matrix_resampled) <- originalRownames
 fit_res_v2 <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v2_control))
 fit_res_v3 <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v3_control))
+fit_res_v3_resampled <- fit_to_signatures(mut_matrix_resampled, t(lacZ_cosmic_signatures_v3_control))
+fit_res_v3_downsampled <- fit_to_signatures(mut_matrixDownsampled, t(lacZ_cosmic_signatures_v3_control))
+fit_res_v3Sanger <- fit_to_signatures(mut_matrixSanger, t(lacZ_cosmic_signatures_v3_control))
 fit_res_v3_no_control <- fit_to_signatures(mut_matrix, t(lacZ_cosmic_signatures_v3_NO_control))
 ```
-  
+
+#### Do fitting of signatures with deconstructSigs
+
+```{r fitting_deconstructSigs}
+deconstructSigsResults <- list()
+
+for (i in 1:nrow(mut_df)) {
+	deconstructSigsResults[[i]] <- whichSignatures(tumor.ref=mut_df[i,],
+                                              signatures.ref=lacZ_cosmic_signatures_v3_control,
+                                              sample.id=rownames(mut_df[i,]))
+}
+
+dsWeights <- matrix(ncol = nrow(lacZ_cosmic_signatures_v3_control), nrow = nrow(mut_df))
+dsProduct <- matrix(ncol = ncol(lacZ_cosmic_signatures_v3_control), nrow = nrow(mut_df))
+vcfNames <- vector()
+
+for (i in 1:nrow(mut_df)) {
+	dsWeights[i,] <- as.numeric(deconstructSigsResults[[i]]$weights)
+	dsProduct[i,] <- as.numeric(deconstructSigsResults[[i]]$product)
+ 	vcfNames <- c(vcfNames, rownames(deconstructSigsResults[[i]]$weights))
+}
+
+rownames(dsWeights) <- vcfNames
+colnames(dsWeights) <- names(deconstructSigsResults[[1]]$weights)
+rownames(dsProduct) <- vcfNames
+colnames(dsProduct) <- colnames(deconstructSigsResults[[1]]$product)
+
+```
+
+#### Do fitting of signatures with deconstructSigs including Sanger data
+
+```{r fitting_deconstructSigsSanger}
+deconstructSigsResultsSanger <- list()
+
+for (i in 1:nrow(mut_dfSanger)) {
+	deconstructSigsResultsSanger[[i]] <- whichSignatures(tumor.ref=mut_dfSanger[i,],
+                                              signatures.ref=lacZ_cosmic_signatures_v3_control,
+                                              sample.id=rownames(mut_dfSanger[i,]))
+}
+
+dsWeightsSanger <- matrix(ncol = nrow(lacZ_cosmic_signatures_v3_control), nrow = nrow(mut_dfSanger))
+dsProductSanger <- matrix(ncol = ncol(lacZ_cosmic_signatures_v3_control), nrow = nrow(mut_dfSanger))
+vcfNamesSanger <- vector()
+
+for (i in 1:nrow(mut_dfSanger)) {
+	dsWeightsSanger[i,] <- as.numeric(deconstructSigsResultsSanger[[i]]$weights)
+	dsProductSanger[i,] <- as.numeric(deconstructSigsResultsSanger[[i]]$product)
+ 	vcfNamesSanger <- c(vcfNamesSanger, rownames(deconstructSigsResultsSanger[[i]]$weights))
+}
+
+rownames(dsWeightsSanger) <- vcfNamesSanger
+colnames(dsWeightsSanger) <- names(deconstructSigsResultsSanger[[1]]$weights)
+rownames(dsProductSanger) <- vcfNamesSanger
+colnames(dsProductSanger) <- colnames(deconstructSigsResultsSanger[[1]]$product)
+
+```
+
 #### Table of relative signature contributions
 ```{r tables}
 # Calculate relative contributions
 df <- fit_res_v3$contribution
+df_downsampled <- fit_res_v3_downsampled$contribution
 df_relative <- apply(df, 2, function(x){x/sum(x)})
+df_relative_downsampled <- apply(df_downsampled, 2, function(x){x/sum(x)})
+
+difference <- df_relative - df_relative_downsampled
+mean(abs(difference[difference > 0]))
+
+difference_for_plotting <- t(difference)
+difference_for_plotting <- data.frame(difference_for_plotting, chemical=row.names(difference_for_plotting))
+difference_for_plotting <- tidyr::pivot_longer(as.data.frame(difference_for_plotting),
+                                               cols=-chemical,
+                                               names_to = "signature",
+                                               values_to = "proportion")
+str(difference_for_plotting)
 knitr::kable(df_relative,
              caption = "Relative contribution of each signature to the mutational catalog for each mutagen",
              digits = 2,
@@ -184,10 +293,37 @@ Modified for version 2 of this analysis to add cutoff of 0.5
 cos_sim_v3 <- cos_sim_matrix(fit_res_v3$reconstructed, mut_matrix)
 cos_sim_v3_lacZ <- cos_sim_matrix(fit_res_v3$reconstructed, t(lacZ_cosmic_signatures_v3_control))
 
+cos_sim_v3S <- cos_sim_matrix(fit_res_v3Sanger$reconstructed, mut_matrixSanger)
+cos_sim_v3_lacZS <- cos_sim_matrix(fit_res_v3Sanger$reconstructed, t(lacZ_cosmic_signatures_v3_control))
+
+cos_sim_v3_resampled <- cos_sim_matrix(fit_res_v3_resampled$reconstructed, mut_matrix)
+cos_sim_v3_lacZ_resampled <- cos_sim_matrix(fit_res_v3_resampled$reconstructed, t(lacZ_cosmic_signatures_v3_control))
+
+cos_sim_v3_downsampled <- cos_sim_matrix(fit_res_v3_downsampled$reconstructed, mut_matrixDownsampled)
+cos_sim_v3_lacZ_downsampled <- cos_sim_matrix(fit_res_v3_downsampled$reconstructed, t(lacZ_cosmic_signatures_v3_control))
+
+
 cos_sim_v3_lacZ_filtered <- cos_sim_v3_lacZ
 cos_sim_v3_lacZ_filtered[cos_sim_v3_lacZ_filtered<0.5] <- NA
 ```
-  
+
+V3 COSMIC Signatures: deconstructSigs (version 3)
+```{r cosine_similarities_deconstructSigs}
+cos_sim_v3_ds <- cos_sim_matrix(t(dsProduct), mut_matrix)
+cos_sim_v3_lacZ_ds <- cos_sim_matrix(t(dsProduct), t(lacZ_cosmic_signatures_v3_control))
+
+cos_sim_v3_lacZ_ds_filtered <- cos_sim_v3_lacZ_ds
+cos_sim_v3_lacZ_ds_filtered[cos_sim_v3_lacZ_ds_filtered<0.5] <- NA
+```
+
+```{r cosine_similarities_deconstructSigs_Sanger}
+cos_sim_v3_dsSanger <- cos_sim_matrix(t(dsProductSanger), mut_matrix)
+cos_sim_v3_lacZ_dsSanger <- cos_sim_matrix(t(dsProductSanger), t(lacZ_cosmic_signatures_v3_control))
+
+cos_sim_v3_lacZ_dsSanger_filtered <- cos_sim_v3_lacZ_dsSanger
+cos_sim_v3_lacZ_dsSanger_filtered[cos_sim_v3_lacZ_dsSanger_filtered<0.5] <- NA
+```
+
 #### Tables showing cosine similarities
 
 ```{r cosine_similarities_V3_table1, tidy=TRUE}
@@ -249,8 +385,8 @@ plot_cosine_heatmap(cos_sim_v2)
 plot_cosine_heatmap(cos_sim_v2_lacZ)
 ```
 
-#### V3 Signatures, with control signature
-```{r plot_V3, fig.align="center", fig.cap="Contribution of each signature (V3 COSMIC)", fig.width=10}
+#### V3 Signatures, with control signature, Sanger data combined
+```{r plot_V3, fig.align="center", fig.width=10}
 selectv3 <- which(rowSums(fit_res_v3$contribution) > cutoff)
 theme_set(theme(legend.position="bottom"))
 plot_contribution(fit_res_v3$contribution[selectv3,],
@@ -271,7 +407,155 @@ plot_cosine_heatmap(cos_sim_v3)
 plot_cosine_heatmap(cos_sim_v3_lacZ)
 ```
 
+#### V3 Signatures, with control signature, Sanger data analyzed separately
+```{r plot_V3_sangerdata, fig.align="center", fig.width=10}
+selectv3S <- which(rowSums(fit_res_v3Sanger$contribution) > cutoff)
+theme_set(theme(legend.position="bottom"))
+plot_contribution(fit_res_v3Sanger$contribution[selectv3S,],
+                  lacZ_cosmic_signatures_v3_control[selectv3S,],
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
+plot_contribution_heatmap(fit_res_v3Sanger$contribution[selectv3S,],
+                          cluster_samples = TRUE,
+                          method = "complete")
+```
+
+```{r plot_V3_cos1_sangerdata, fig.align="center", fig.cap="Cosine similarity: reconstructed signatures vs. mutations", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3S)
+```
+
+```{r plot_V3_cos2_sangerdata, fig.align="center", fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_lacZS)
+```
+
+#### V3 Signatures, with control signature, analyzed by deconstructSigs whichSignatures function, Sanger data combined
+```{r plot_V3_deconstructSigs, fig.align="center", fig.width=10}
+selectv3DS <- which(rowSums(t(dsWeights)) > cutoff)
+theme_set(theme(legend.position="bottom"))
+plot_contribution(t(dsWeights)[selectv3DS,],
+                  lacZ_cosmic_signatures_v3_control[selectv3DS,],
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
+plot_contribution_heatmap(t(dsWeights)[selectv3DS,],
+                          cluster_samples = TRUE,
+                          method = "complete")
+```
+
+```{r plot_V3_cos1_deconstructSigs, fig.align="center", fig.cap="Cosine similarity: reconstructed signatures vs. mutations", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_ds)
+```
+
+```{r plot_V3_cos2_deconstructSigs, fig.align="center", fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_lacZ_ds)
+```
+
+#### V3 Signatures, with control signature, analyzed by deconstructSigs whichSignatures function, Sanger data analyzed separately
+```{r plot_V3_sangerdata_deconstructSigs, fig.align="center", fig.width=10}
+selectv3DSS <- which(rowSums(t(dsWeightsSanger)) > cutoff)
+theme_set(theme(legend.position="bottom"))
+plot_contribution(t(dsWeightsSanger)[selectv3DSS,],
+                  lacZ_cosmic_signatures_v3_control[selectv3DSS,],
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
+plot_contribution_heatmap(t(dsWeightsSanger)[selectv3DSS,],
+                          cluster_samples = TRUE,
+                          method = "complete")
+```
+
+```{r plot_V3_cos1_sangerdata_deconstructSigs, fig.align="center", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_dsSanger)
+```
+
+```{r plot_V3_cos2_sangerdata_deconstructSigs, fig.align="center", fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_lacZ_dsSanger)
+```
+
+
+#### V3 Signatures, with control signature, randomized (shuffled) data
+```{r plot_V3_resampled, fig.align="center", fig.width=10}
+selectv3resampled <- which(rowSums(fit_res_v3_resampled$contribution) > cutoff)
+theme_set(theme(legend.position="bottom"))
+plot_contribution(fit_res_v3_resampled$contribution[selectv3resampled,],
+                  lacZ_cosmic_signatures_v3_control[selectv3resampled,],
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
+plot_contribution_heatmap(fit_res_v3_resampled$contribution[selectv3resampled,],
+                          cluster_samples = TRUE,
+                          method = "complete")
+```
+
+```{r plot_V3_cos1_resampled, fig.align="center", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_resampled)
+```
+
+```{r plot_V3_cos2_resampled, fig.align="center", fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_lacZ_resampled)
+```
+
+#### V3 Signatures, with control signature, downsampled data
+```{r plot_V3_downsampled, fig.align="center", fig.width=10}
+selectv3downsampled <- which(rowSums(fit_res_v3_downsampled$contribution) > cutoff)
+theme_set(theme(legend.position="bottom"))
+plot_contribution(fit_res_v3_downsampled$contribution[selectv3downsampled,],
+                  lacZ_cosmic_signatures_v3_control[selectv3downsampled,],
+                  coord_flip = TRUE,
+                  mode = "relative") +
+  theme(legend.position="bottom")
+plot_contribution_heatmap(fit_res_v3_downsampled$contribution[selectv3downsampled,],
+                          cluster_samples = TRUE,
+                          method = "complete")
+```
+
+```{r plot_V3_cos1_downsampled, fig.align="center", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_downsampled)
+```
+
+```{r plot_V3_cos2_downsampled, fig.align="center", fig.cap="Cosine similarity: reconstructed signatures vs. lacZ signatures", fig.width=10}
+plot_cosine_heatmap(cos_sim_v3_lacZ_downsampled)
+```
+
+The downsampled data has some differences in relative proportion - here is their histogram:
+
+```{r plot_difference_downsampled}
+
+ggplot(difference_for_plotting[difference_for_plotting$proportion > 0,], aes(x=abs(proportion))) + 
+  geom_histogram(bins=10) +
+  facet_wrap(~chemical)
+
+ggplot(difference_for_plotting[difference_for_plotting$proportion > 0,], aes(x=abs(proportion))) + 
+  geom_histogram(bins=10) +
+  facet_wrap(~signature)
+
+ggplot(difference_for_plotting[difference_for_plotting$proportion !=0,], aes(x = proportion,
+                                                                             y = rev(signature),
+                                                                             color=chemical)) +
+          geom_point(position="jitter") +
+          theme_bw() +
+          scale_y_discrete(element_blank()) +
+          scale_x_continuous(name = "% change in relative contribution") +
+          theme(text = element_text(size=15))
+
+ggplot(difference_for_plotting[difference_for_plotting$proportion !=0,], aes(x = chemical,
+                                                                             y = proportion*100)) +
+          geom_jitter(width=0.1, alpha=0.5) +
+          theme_bw() +
+          scale_y_continuous(name = "% change in relative contribution",
+                             breaks = seq(-50, 50, by=10)) +
+          theme(text = element_text(size=15),
+                legend.position = "none",
+                axis.text.x = element_blank()) +
+  scale_x_discrete(name="Mutagen") +
+  facet_grid(~chemical, scales="free_x")
+
+
+```
+
 #### V3 Signatures, without control signature
+
 ```{r plot_v3_no_control, fig.align="center", fig.cap="Contribution of each signature (V3 COSMIC, no control)", fig.width=10}
 selectv3_no_control <- which(rowSums(fit_res_v3_no_control$contribution) > cutoff)
 plot_contribution(fit_res_v3_no_control$contribution[selectv3_no_control,],
