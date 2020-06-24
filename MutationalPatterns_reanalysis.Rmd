@@ -8,6 +8,7 @@ output:
     fig_caption: yes
     highlight: haddock
     theme: cerulean
+    dev: png
     toc: yes
     toc_depth: 4
     toc_float:
@@ -31,14 +32,23 @@ knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
 ***
 # Revision History
 #### This version
-Previous version: 4   
+Current version: 5   
 Date report generated: `r format(Sys.time(), '%d %B, %Y')`  
 Revision requested by: Francesco Marchetti  
 Justification(s) for revision:
 
-* Downsample data to illustrate robustness
+* Tweak figure showing relative change after downsampling as follows:
+  + Show average change in relative contribution below each facet
+  + Change color palette for Supplementary Figs S6 and S7 to be consistent between relative contributions and scatter plots
 
 #### Previous revisions
+
+Previous version: 4   
+Date report generated: 18 June, 2020  
+Revision requested by: Francesco Marchetti  
+Justification(s) for revision:
+
+* Downsample data to illustrate robustness
 
 Previous version: 3   
 Date report generated: 16 June 2020  
@@ -79,6 +89,7 @@ library(ggplot2)
 library(knitr)
 library(dplyr)
 library(kableExtra)
+library(RColorBrewer)
 ```
 
 ***
@@ -101,6 +112,15 @@ lacZ_cosmic_signatures_v3_control <- as.data.frame(t(read.table("data/lacZ_corre
                                                      header=T,
                                                      stringsAsFactors = F)))
 colnames(lacZ_cosmic_signatures_v3_control) <- colnames(signatures.cosmic)
+
+# Create color pallette to use for signatures
+# Signature names
+sigNames <- row.names(lacZ_cosmic_signatures_v3_control)
+numSigs <- nrow(lacZ_cosmic_signatures_v3_control)
+myColors <- colorRampPalette( brewer.pal( 11 , "Spectral" ) )(numSigs)
+names(myColors) <- sigNames
+#scale_color_manual(values=myColors)
+
 ```
 
 #### lacZ-corrected COSMIC signatures (V2) with control
@@ -352,7 +372,8 @@ knitr::kable(t(cos_sim_v3_lacZ_filtered_rounded),
 
 # Plots
 ```{r cutoff, eval=TRUE, echo=FALSE}
-cutoff=0.001
+cutoff=0.01
+#cutoff=1
 ```
 
 Using a cutoff value of `r cutoff`  
@@ -393,7 +414,8 @@ plot_contribution(fit_res_v3$contribution[selectv3,],
                   lacZ_cosmic_signatures_v3_control[selectv3,],
                   coord_flip = TRUE,
                   mode = "relative") +
-  theme(legend.position="bottom")
+  theme(legend.position="bottom") +
+  scale_fill_manual(values=myColors)
 plot_contribution_heatmap(fit_res_v3$contribution[selectv3,],
                           cluster_samples = TRUE,
                           method = "complete")
@@ -431,7 +453,7 @@ plot_cosine_heatmap(cos_sim_v3_lacZS)
 
 #### V3 Signatures, with control signature, analyzed by deconstructSigs whichSignatures function, Sanger data combined
 ```{r plot_V3_deconstructSigs, fig.align="center", fig.width=10}
-selectv3DS <- which(rowSums(t(dsWeights)) > cutoff)
+selectv3DS <- which(rowSums(t(dsWeights)) > cutoff/100)
 theme_set(theme(legend.position="bottom"))
 plot_contribution(t(dsWeights)[selectv3DS,],
                   lacZ_cosmic_signatures_v3_control[selectv3DS,],
@@ -482,7 +504,8 @@ plot_contribution(fit_res_v3_resampled$contribution[selectv3resampled,],
                   lacZ_cosmic_signatures_v3_control[selectv3resampled,],
                   coord_flip = TRUE,
                   mode = "relative") +
-  theme(legend.position="bottom")
+  theme(legend.position="bottom") +
+  scale_fill_manual(values=myColors)
 plot_contribution_heatmap(fit_res_v3_resampled$contribution[selectv3resampled,],
                           cluster_samples = TRUE,
                           method = "complete")
@@ -504,7 +527,10 @@ plot_contribution(fit_res_v3_downsampled$contribution[selectv3downsampled,],
                   lacZ_cosmic_signatures_v3_control[selectv3downsampled,],
                   coord_flip = TRUE,
                   mode = "relative") +
-  theme(legend.position="bottom")
+  theme(legend.position="bottom",
+        legend.title = element_blank()) +
+  scale_fill_manual(values=myColors)
+
 plot_contribution_heatmap(fit_res_v3_downsampled$contribution[selectv3downsampled,],
                           cluster_samples = TRUE,
                           method = "complete")
@@ -539,19 +565,49 @@ ggplot(difference_for_plotting[difference_for_plotting$proportion !=0,], aes(x =
           scale_x_continuous(name = "% change in relative contribution") +
           theme(text = element_text(size=15))
 
-ggplot(difference_for_plotting[difference_for_plotting$proportion !=0,], aes(x = chemical,
-                                                                             y = proportion*100)) +
-          geom_jitter(width=0.1, alpha=0.5) +
-          theme_bw() +
-          scale_y_continuous(name = "% change in relative contribution",
+df.plot <- difference_for_plotting[difference_for_plotting$proportion !=0,]
+df.plot.labels <- df.plot %>%
+  group_by(chemical) %>%
+  summarise(myMean = round(100*mean(abs(proportion)),2))
+
+mutCounts <- as.data.frame(mutationRanges) %>%
+   group_by(sampleNames) %>%
+   count()
+sum(mutCounts$n)
+
+downsampled.counts <- as.data.frame(mutationRangesDownsampled)%>%
+   group_by(sampleNames) %>%
+   count()
+sum(downsampled.counts$n)
+
+# knitr::kable(downsampled.counts,
+#              caption="Sanity check for mutation data") %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# knitr::kable(mutCounts,
+#              caption="Sanity check for mutation data") %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r plot_difference_downsampled_scatter, fig.width=11, fig.height=4}
+ggplot(df.plot, aes(x = chemical,
+                    y = proportion*100,
+                    color = signature)) +
+  geom_jitter(width=0.5, alpha=0.8, size = 2.5) +
+  theme_bw() +
+  scale_y_continuous(name = "% change in relative contribution",
                              breaks = seq(-50, 50, by=10)) +
-          theme(text = element_text(size=15),
-                legend.position = "none",
-                axis.text.x = element_blank()) +
+  theme(text = element_text(size=15),
+        legend.position = "none",
+        axis.text.x = element_blank()) +
   scale_x_discrete(name="Mutagen") +
-  facet_grid(~chemical, scales="free_x")
-
-
+  facet_grid(.~chemical, scales="free_x") +
+  geom_text(x = 1, y = -40, 
+            aes(label = paste0("Mean: \n", myMean,"%")), 
+            data = df.plot.labels,
+            size=3,
+            inherit.aes = FALSE) +
+  scale_color_manual(values=myColors)
 ```
 
 #### V3 Signatures, without control signature
