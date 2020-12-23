@@ -1,7 +1,7 @@
 ---
 title: "LacZ COSMIC Project"
 author: "Matthew J. Meier"
-subtitle: MutationalPatterns analysis - for response to reviewers
+subtitle: MutationalPatterns analysis
 output:
   html_document:
     code_folding: show
@@ -32,16 +32,23 @@ knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
 ***
 # Revision History
 #### This version
-Current version: 5   
+Current version: 6   
 Date report generated: `r format(Sys.time(), '%d %B, %Y')`  
+Revision requested by: Nature Communications Biology  
+Justification(s) for revision:
+
+* Ensure individual data points are shown in figures
+
+#### Previous revisions
+
+Previous version: 5   
+Date report generated: 19 June, 2020  
 Revision requested by: Francesco Marchetti  
 Justification(s) for revision:
 
 * Tweak figure showing relative change after downsampling as follows:
   + Show average change in relative contribution below each facet
   + Change color palette for Supplementary Figs S6 and S7 to be consistent between relative contributions and scatter plots
-
-#### Previous revisions
 
 Previous version: 4   
 Date report generated: 18 June, 2020  
@@ -90,6 +97,8 @@ library(knitr)
 library(dplyr)
 library(kableExtra)
 library(RColorBrewer)
+library(ggpubr)
+library(reshape)
 ```
 
 ***
@@ -120,6 +129,78 @@ numSigs <- nrow(lacZ_cosmic_signatures_v3_control)
 myColors <- colorRampPalette( brewer.pal( 11 , "Spectral" ) )(numSigs)
 names(myColors) <- sigNames
 #scale_color_manual(values=myColors)
+
+
+signatures.v3.SBS <- read.csv("~/dbs/signatures/SigProfiler_reference_whole-genome_signatures_sigProfiler_SBS_signatures_2019_05_22.csv",
+                              stringsAsFactors = F)
+signatures.v3.SBS <- t(signatures.v3.SBS)
+signatures.v3.SBS <- signatures.v3.SBS[3:nrow(signatures.v3.SBS),]
+signatures.v3.SBS <- as.data.frame(signatures.v3.SBS)
+colnames(signatures.v3.SBS) <- colnames(signatures.cosmic)
+signatures.v3.SBS[] <- lapply(signatures.v3.SBS, function(x) {
+  if(is.factor(x)) as.numeric(as.character(x)) else x
+})
+signatures.v3.SBS$Signature <- row.names(signatures.v3.SBS)
+signatures.v3.SBS.melted <- reshape::melt(signatures.v3.SBS, id.vars = "Signature" )
+tempmuts <- gsub("[A-Z]\\[", "", signatures.v3.SBS.melted$variable)
+signatures.v3.SBS.melted$muttype <- gsub("\\][A-Z]", "", tempmuts)
+signatures.v3.SBS.melted$Signature_factor <- factor(signatures.v3.SBS.melted$Signature, c(unique(signatures.v3.SBS.melted$Signature)))
+
+
+	lacZ_cosmic_signatures <- lacZ_cosmic_signatures_v3_control
+	lacZ_cosmic_signatures <- lacZ_cosmic_signatures_v3_control
+	lacZ_cosmic_signatures$Signature <- row.names(lacZ_cosmic_signatures)
+	lacZ_cosmic_signatures_melted <- reshape::melt(lacZ_cosmic_signatures, id.vars = "Signature" )
+	tempmuts <-gsub("[A-Z]\\[", "", lacZ_cosmic_signatures_melted$variable)
+	lacZ_cosmic_signatures_melted$muttype <- gsub("\\][A-Z]", "", tempmuts)
+	lacZ_cosmic_signatures_melted$Signature_factor <- factor(lacZ_cosmic_signatures_melted$Signature, c(unique(lacZ_cosmic_signatures_melted$Signature)))
+  lacZ_cosmic_signatures_melted$Signature_factor <- gsub(lacZ_cosmic_signatures_melted$Signature_factor, pattern="Signature.", replacement = "SBS")
+
+	ggplot(lacZ_cosmic_signatures_melted[lacZ_cosmic_signatures_melted$Signature_factor %in% 
+	                                       gsub(row.names(lacZ_cosmic_signatures_v3_control)[1:20],
+	                                            pattern="Signature.",
+	                                            replacement="SBS"),],
+	       aes(x=variable, y=value)) + 
+	  geom_bar(stat="identity", aes(fill=muttype), width=0.5) + 
+	  scale_fill_manual(values = c("#1ebff0",
+	                               "#000000",
+	                               "#e62725",
+	                               "#cbcacb",
+	                               "#a1cf64",
+	                               "#edc8c5")) + 
+	  facet_grid(Signature_factor ~ muttype, scales="free") + 
+	  theme(panel.spacing.x=unit(0, "lines"),
+	        panel.grid.major = element_line(colour="lightgrey", size=0.2),
+	        panel.grid.minor = element_blank(),
+	        panel.background = element_blank(),
+	        axis.line = element_line(colour = "black")) + 
+	  scale_y_continuous(breaks=seq(0,1,0.1), minor_breaks = NULL) + 
+	  scale_x_discrete(breaks=NULL)  +
+	  labs(fill = "Mutation Type")
+	  #coord_cartesian(ylim=c(0,0.4))
+	
+	
+	ggplot(signatures.v3.SBS.melted[signatures.v3.SBS.melted$Signature_factor %in% 
+	                                       row.names(signatures.v3.SBS)[1:20],],
+	       aes(x=variable, y=value)) + 
+	  geom_bar(stat="identity", aes(fill=muttype), width=0.5) + 
+	  scale_fill_manual(values = c("#1ebff0",
+	                               "#000000",
+	                               "#e62725",
+	                               "#cbcacb",
+	                               "#a1cf64",
+	                               "#edc8c5")) + 
+	  facet_grid(Signature_factor ~ muttype, scales="free") + 
+	  theme(panel.spacing.x=unit(0, "lines"),
+	        panel.grid.major = element_line(colour="lightgrey", size=0.2),
+	        panel.grid.minor = element_blank(),
+	        panel.background = element_blank(),
+	        axis.line = element_line(colour = "black")) + 
+	  scale_y_continuous(breaks=seq(0,1,0.1), minor_breaks = NULL) + 
+	  scale_x_discrete(breaks=NULL) +
+	  labs(fill = "Mutation Type")
+	  #coord_cartesian(ylim=c(0,0.4))
+	
 
 ```
 
@@ -572,12 +653,12 @@ df.plot.labels <- df.plot %>%
 
 mutCounts <- as.data.frame(mutationRanges) %>%
    group_by(sampleNames) %>%
-   count()
+   dplyr::count()
 sum(mutCounts$n)
 
 downsampled.counts <- as.data.frame(mutationRangesDownsampled)%>%
    group_by(sampleNames) %>%
-   count()
+   dplyr::count()
 sum(downsampled.counts$n)
 
 # knitr::kable(downsampled.counts,
@@ -650,6 +731,14 @@ print(plot_compare_profiles(mut_matrix[,i], fit_res_v3$reconstructed[,i],
                       profile_names = c(colnames(mut_matrix)[i], "Reconstructed"),
                       condensed = TRUE))
 }
+# For presentation
+plot_compare_profiles(mut_matrix[,1], fit_res_v3$reconstructed[,1],
+                      profile_names = c(colnames(mut_matrix)[1], "Reconstructed"),
+                      condensed = TRUE,
+                      diff_ylim=c(-0.2,0.2)) + 
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+    theme(strip.text.x = element_text(size = 12, face = "bold"),
+      strip.text.y = element_text(size = 9, face = "bold"))
 ```
 
 #### V3 COSMIC, no control signature
@@ -660,6 +749,109 @@ print(plot_compare_profiles(mut_matrix[,i], fit_res_v3_no_control$reconstructed[
                       condensed = TRUE))
 }
 ```
+
+# New Figure 2
+```{r figure2, fig.width=9}
+spectrum <- read.table("./spectrum.txt",
+           sep="\t",
+           header=T,
+           check.names = F,
+           stringsAsFactors = F)
+spectrum_long <- spectrum %>%
+  tidyr::gather(2:10,key=Mutation_Type,value=Mutation_Proportion)
+spectrum_long$Mutation_Type <- factor(spectrum_long$Mutation_Type,
+                                      levels=c("T > C",
+                                               "C > T",
+                                               "C > A",
+                                               "C > G",
+                                               "T > A",
+                                               "T > G",
+                                               "Insertion",
+                                               "Deletion",
+                                               ">1 Indel"))
+spectrum_long$Treatment <- factor(spectrum_long$Treatment,
+                                  levels=c("Control",
+                                           "BaP",
+                                           "ENU",
+                                           "PRC",
+                                           "TEM"))
+
+
+ggplot(spectrum_long, aes(x=Mutation_Type, y=Mutation_Proportion, color=Treatment)) +
+  geom_boxplot(outlier.shape=NA) + # Hide outliers since raw data is plotted too!
+  geom_jitter(alpha=0.5, position= position_jitterdodge()  ) +
+  theme_bw() +
+  xlab("Mutation Type") +
+  ylab("Mutation Proportion") +
+  theme(legend.position = "bottom", strip.text.x = element_blank())
+
+ggplot(spectrum_long, aes(x=Mutation_Type, y=Mutation_Proportion, color=Treatment)) +
+  geom_jitter(alpha=0.5, position= position_jitterdodge()   ) +
+  theme_bw() +
+  xlab("Mutation Type") +
+  ylab("Mutation Proportion") +
+  theme(legend.position = "bottom")
+
+ggplot(spectrum_long, aes(x=Mutation_Type, y=Mutation_Proportion, color=Treatment)) +
+  geom_jitter(alpha=0.5, position= position_jitterdodge()  ) +
+  theme_bw() +
+  xlab("Mutation Type") +
+  ylab("Mutation Proportion") +
+  theme(legend.position = "bottom", strip.text.x = element_blank()) +
+  facet_grid(~Mutation_Type, scales="free_x")
+
+ggplot(spectrum_long, aes(x=Mutation_Type, y=Mutation_Proportion, color=Treatment)) +
+  geom_boxplot() +
+  theme_bw() +
+  xlab("Mutation Type") +
+  ylab("Mutation Proportion") +
+  theme(legend.position = "bottom")
+
+ggplot(spectrum_long, aes(x=Mutation_Type, y=Mutation_Proportion, color=Treatment)) +
+  geom_boxplot() + # Hide outliers since raw data is plotted too!
+  theme_bw() +
+  xlab("Mutation Type") +
+  ylab("Mutation Proportion") +
+  theme(legend.position = "bottom", strip.text.x = element_blank()) +
+  facet_grid(~Mutation_Type, scales="free_x")
+
+
+
+
+
+
+comparisons <- compare_means(data = spectrum_long,
+              formula=Mutation_Proportion~Treatment,
+              group.by= "Mutation_Type",
+              ref.group="Control")
+
+ggplot(spectrum_long, aes(x=Treatment,
+                          y=Mutation_Proportion,
+                          color=Treatment)) +
+  geom_boxplot(outlier.shape=NA) + # Hide outliers since raw data is plotted too!
+  geom_jitter(alpha=0.5, position= position_jitterdodge()  ) +
+  theme_bw() +
+  xlab("Mutation Type") +
+  ylab("Mutation Proportion") +
+  facet_grid(~Mutation_Type, switch='x') +
+  geom_text()
+  theme(legend.position = "bottom", 
+        strip.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())  #+
+  # stat_compare_means(ref.group = "Control",
+  #                    method="Fisher's exact"
+  #                    label = "p.signif",
+  #                    hide.ns=T,
+  #                    show.legend = T,
+  #                    symnum.args = list(cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 1),
+  #                    symbols = c("****", "***", "**", "*", "ns"))) +  # ‡ P < 0.1, † P < 0.05, * P < 0.0001
+
+
+
+```
+
 
 # Session Info
 ```{r sessionInfo, echo=FALSE, tidy=TRUE}
